@@ -1,0 +1,108 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PyWAF Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body class="bg-slate-950 text-slate-100">
+    <div class="max-w-7xl mx-auto p-6 space-y-6">
+      <header class="flex items-center justify-between">
+        <h1 class="text-2xl md:text-3xl font-bold">PyWAF – Live Security Dashboard</h1>
+        <a href="/" class="text-sm underline opacity-75 hover:opacity-100">↩︎ Go to proxy root</a>
+      </header>
+
+      <section class="grid md:grid-cols-3 gap-4">
+        <div class="bg-slate-900/60 rounded-2xl p-4 shadow">
+          <div class="text-xs uppercase opacity-70">Requests</div>
+          <div id="req-count" class="text-3xl font-semibold">0</div>
+        </div>
+        <div class="bg-slate-900/60 rounded-2xl p-4 shadow">
+          <div class="text-xs uppercase opacity-70">Blocked</div>
+          <div id="blk-count" class="text-3xl font-semibold">0</div>
+        </div>
+        <div class="bg-slate-900/60 rounded-2xl p-4 shadow">
+          <div class="text-xs uppercase opacity-70">Avg Latency (ms)</div>
+          <div id="lat-avg" class="text-3xl font-semibold">0</div>
+        </div>
+      </section>
+
+      <section class="grid md:grid-cols-2 gap-6">
+        <div class="bg-slate-900/60 rounded-2xl p-4 shadow">
+          <h2 class="font-semibold mb-2">Traffic Over Time</h2>
+          <canvas id="trafficChart"></canvas>
+        </div>
+        <div class="bg-slate-900/60 rounded-2xl p-4 shadow">
+          <h2 class="font-semibold mb-2">Allowed vs Blocked</h2>
+          <canvas id="pieChart"></canvas>
+        </div>
+      </section>
+
+      <section class="bg-slate-900/60 rounded-2xl p-4 shadow">
+        <h2 class="font-semibold mb-3">Live Events</h2>
+        <div id="events" class="space-y-2 max-h-96 overflow-auto text-sm"></div>
+      </section>
+    </div>
+
+    <script>
+      const evtSrc = new EventSource('/events');
+      const reqCountEl = document.getElementById('req-count');
+      const blkCountEl = document.getElementById('blk-count');
+      const latAvgEl = document.getElementById('lat-avg');
+      const eventsEl = document.getElementById('events');
+
+      const trafficCtx = document.getElementById('trafficChart').getContext('2d');
+      const pieCtx = document.getElementById('pieChart').getContext('2d');
+      const timeLabels = [];
+      const trafficData = [];
+      const pieData = {allowed:0, blocked:0};
+
+      const trafficChart = new Chart(trafficCtx, {
+        type: 'line',
+        data: {
+          labels: timeLabels,
+          datasets: [{ label: 'Requests/min', data: trafficData }]
+        },
+        options: { animation:false, responsive:true, scales:{y:{beginAtZero:true}} }
+      });
+
+      const pieChart = new Chart(pieCtx, {
+        type: 'doughnut',
+        data: { labels: ['Allowed','Blocked'], datasets:[{ data: [0,0] }] },
+        options: { animation:false, responsive:true }
+      });
+
+      evtSrc.onmessage = (ev) => {
+        try {
+          const d = JSON.parse(ev.data);
+          reqCountEl.textContent = d.counts.allowed + d.counts.blocked || 0;
+          blkCountEl.textContent = d.counts.blocked || 0;
+          latAvgEl.textContent = Math.round(d.avg_latency_ms);
+
+          // traffic
+          const ts = new Date().toLocaleTimeString();
+          timeLabels.push(ts);
+          trafficData.push((d.counts.allowed||0)+(d.counts.blocked||0));
+          if (timeLabels.length > 30) { timeLabels.shift(); trafficData.shift(); }
+          trafficChart.update();
+
+          // pie
+          pieChart.data.datasets[0].data = [d.counts.allowed||0, d.counts.blocked||0];
+          pieChart.update();
+
+          // events feed
+          const evs = d.events || [];
+          eventsEl.innerHTML = "";
+          evs.forEach(e => {
+            const row = document.createElement('div');
+            row.className = "bg-slate-800/60 rounded-xl p-2";
+            row.textContent = `[${new Date(e.ts*1000).toLocaleTimeString()}] ${e.action.toUpperCase()} ${e.method} ${e.path} (anom=${(e.anomaly||0).toFixed(2)}; sigs=${(e.signatures||[]).join('|')})`;
+            eventsEl.appendChild(row);
+          });
+        } catch (_) {}
+      };
+    </script>
+  </body>
+</html>

@@ -1,0 +1,6 @@
+anomaly_threshold: 0.62
+max_body_sample: 4096
+block_on_signature: true
+block_on_model: true
+rate_limit_per_minute: 120
+trusted_proxies: []
